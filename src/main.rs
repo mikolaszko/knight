@@ -1,33 +1,75 @@
-use std::io;
+use ratatui::{
+    crossterm::{
+        event::{
+            self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
+            KeyCode, KeyEventKind,
+        },
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    layout::{Constraint, Direction, Layout},
+    prelude::{Backend, CrosstermBackend},
+    widgets::{Block, Borders, Paragraph},
+    Terminal,
+};
+use std::{error::Error, io, vec};
 
 use sysinfo::System;
 
-use ratatui::{
-    crossterm::event::{self, KeyCode, KeyEventKind},
-    style::Stylize,
-    text::{Line, Text},
-    DefaultTerminal,
-};
+pub struct App {}
 
-fn main() -> io::Result<()> {
-    let sys = System::new_all();
-    let mut terminal = ratatui::init();
-    terminal.clear()?;
-    let app_result = run(terminal, sys);
-    ratatui::restore();
-    app_result
+impl App {
+    pub fn new() -> App {
+        App {}
+    }
 }
 
-fn run(mut terminal: DefaultTerminal, sys: System) -> io::Result<()> {
+fn main() -> Result<(), Box<dyn Error>> {
+    enable_raw_mode();
+    let mut sys = System::new_all();
+    sys.refresh_all();
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let mut app = App::new();
+    let _ = run(&mut terminal, &mut app, sys);
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    Ok(())
+}
+
+fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, mut sys: System) -> io::Result<()> {
     loop {
-        terminal.draw(|frame| {
-            let used_memory = sys.used_memory();
-            let greeting = Text::from(Line::from(vec![
-                "Knight!".into(),
-                used_memory.to_string().black(),
-            ]))
-            .on_blue();
-            frame.render_widget(greeting, frame.area());
+        sys.refresh_memory();
+        terminal.draw(|f| {
+            let main_layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![
+                    Constraint::Percentage(10),
+                    Constraint::Percentage(80),
+                    Constraint::Percentage(10),
+                ])
+                .split(f.area());
+            f.render_widget(
+                Paragraph::new("mid").block(Block::new().borders(Borders::ALL)),
+                main_layout[1],
+            );
+            f.render_widget(
+                Paragraph::new("bottom").block(Block::new().borders(Borders::ALL)),
+                main_layout[2],
+            );
+
+            let used_cpu_block = Block::default().title("Used Memory");
+            let used_cpu_text = Paragraph::new(sys.used_memory().to_string()).block(used_cpu_block);
+            f.render_widget(used_cpu_text, main_layout[1])
         })?;
 
         if let event::Event::Key(key) = event::read()? {
@@ -35,5 +77,6 @@ fn run(mut terminal: DefaultTerminal, sys: System) -> io::Result<()> {
                 return Ok(());
             }
         }
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL)
     }
 }
