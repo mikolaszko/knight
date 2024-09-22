@@ -1,31 +1,35 @@
 use ratatui::{
     crossterm::{
-        event::{
-            self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
-            KeyCode, KeyEventKind,
-        },
+        event::{self, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEventKind},
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
     layout::{Constraint, Direction, Layout},
     prelude::{Backend, CrosstermBackend},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
 use std::{error::Error, io, vec};
 
-use sysinfo::System;
+use sysinfo::{System, Users};
 
-pub struct App {}
+pub struct App {
+    system: System,
+    users: Users,
+}
 
 impl App {
     pub fn new() -> App {
-        App {}
+        App {
+            system: System::new_all(),
+            users: Users::new_with_refreshed_list(),
+        }
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    enable_raw_mode();
+    enable_raw_mode()?;
     let mut sys = System::new_all();
     sys.refresh_all();
     let mut stdout = io::stdout();
@@ -33,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let mut app = App::new();
-    let _ = run(&mut terminal, &mut app, sys);
+    let _ = run(&mut terminal, &mut app);
 
     disable_raw_mode()?;
     execute!(
@@ -46,9 +50,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, mut sys: System) -> io::Result<()> {
+fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<()> {
     loop {
-        sys.refresh_memory();
+        app.system.refresh_memory();
         terminal.draw(|f| {
             let main_layout = Layout::default()
                 .direction(Direction::Vertical)
@@ -67,9 +71,11 @@ fn run<B: Backend>(terminal: &mut Terminal<B>, app: &mut App, mut sys: System) -
                 main_layout[2],
             );
 
-            let used_cpu_block = Block::default().title("Used Memory");
-            let used_cpu_text = Paragraph::new(sys.used_memory().to_string()).block(used_cpu_block);
-            f.render_widget(used_cpu_text, main_layout[1])
+            let used_cpu_sec = Line::from(vec![Span::raw(app.system.used_memory().to_string())]);
+
+            let used_cpu_sec = Line::from(vec![Span::raw(app.system.used_memory().to_string())]);
+
+            f.render_widget(used_cpu_sec, main_layout[1])
         })?;
 
         if let event::Event::Key(key) = event::read()? {
